@@ -1,236 +1,401 @@
 package in.bellaryinfotech.Controller;
 
-import java.util.Base64;
-import java.util.List;
-import java.util.stream.Collectors;
+import in.bellaryinfotech.dto.FileDTO;
+import in.bellaryinfotech.model.FileEntity;
+import in.bellaryinfotech.Service.FileService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.*;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import in.bellaryinfotech.Service.FileService;
-import in.bellaryinfotech.dto.FileDTO;
-import in.bellaryinfotech.model.FileEntity;
+import java.io.File;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/files")
 @CrossOrigin(origins = "*")
 public class FileController {
 
-	private static final Logger LOG = LoggerFactory.getLogger(FileController.class);
+    private static final Logger LOG = LoggerFactory.getLogger(FileController.class);
 
-	@Autowired
-	private FileService fileService;
+    @Autowired
+    private FileService fileService;
 
-	/**
-	 * Uploads a file along with metadata (title, location, area, price, features)
-	 */
-	@PostMapping("/upload")
-	public ResponseEntity<?> uploadFile(@RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
-			@RequestParam(value = "videoFile", required = false) MultipartFile videoFile,
-			@RequestParam("title") String title, @RequestParam("location") String location,
-			@RequestParam("area") String area, @RequestParam("areaInCents") String areaInCents,
-			@RequestParam("price") String price, @RequestParam("features") String features) {
+    private static final String UPLOAD_DIR = "uploads/";
+    private static final String IMAGE_DIR = UPLOAD_DIR + "images/";
+    private static final String VIDEO_DIR = UPLOAD_DIR + "videos/";
 
-		try {
-			FileEntity savedFile = fileService.uploadFile(imageFile, videoFile, title, location, area, areaInCents,
-					price, features);
-			LOG.info("File uploaded successfully: {}", savedFile.getId());
-			return ResponseEntity.ok(savedFile);
-		} catch (Exception e) {
-			LOG.error("Upload failed: {}", e.getMessage(), e);
-			return ResponseEntity.internalServerError().body("Upload failed: " + e.getMessage());
-		}
-	}
-
-	/**
-	 * Retrieves a file and its metadata by ID
-	 */
-	@GetMapping("/{id}")
-	public ResponseEntity<?> getFile(@PathVariable Long id) {
-		LOG.info("Fetching file and metadata for ID: {}", id);
-
-		try {
-			FileEntity file = fileService.getFile(id);
-			if (file == null) {
-				LOG.warn("File not found with ID: {}", id);
-				return ResponseEntity.notFound().build();
-			}
-
-			// Convert image and video to Base64 (if available)
-			String base64Image = null;
-			String base64Video = null;
-
-			if (file.getImageData() != null) {
-				base64Image = "data:" + file.getType() + ";base64,"
-						+ java.util.Base64.getEncoder().encodeToString(file.getImageData());
-			}
-
-			if (file.getVideoData() != null) {
-				base64Video = "data:" + file.getVideoType() + ";base64,"
-						+ java.util.Base64.getEncoder().encodeToString(file.getVideoData());
-			}
-
-			// Build the DTO
-			FileDTO response = new FileDTO();
-			response.setId(file.getId());
-			response.setName(file.getName());
-			response.setType(file.getType());
-			response.setVideoType(file.getVideoType());
-			response.setTitle(file.getTitle());
-			response.setLocation(file.getLocation());
-			response.setArea(file.getArea());
-			response.setAreaInCents(file.getAreaInCents());
-			response.setPrice(file.getPrice());
-			response.setFeatures(file.getFeatures());
-			response.setBase64Image(base64Image);
-			response.setBase64Video(base64Video);
-
-			LOG.info("File and metadata retrieved successfully for ID: {}", id);
-			return ResponseEntity.ok(response);
-
-		} catch (Exception e) {
-			LOG.error("Error fetching file for ID {}: {}", id, e.getMessage(), e);
-			return ResponseEntity.internalServerError().body("File fetch failed: " + e.getMessage());
-		}
-	}
+    // ✅ Upload file
+    @PostMapping("/upload")
+    public ResponseEntity<?> uploadFile(@RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
+                                        @RequestParam(value = "videoFile", required = false) MultipartFile videoFile,
+                                        @RequestParam("title") String title,
+                                        @RequestParam("location") String location,
+                                        @RequestParam("area") String area,
+                                        @RequestParam("areaInCents") String areaInCents,
+                                        @RequestParam("price") String price,
+                                        @RequestParam("features") String features) {
+        try {
+            FileEntity saved = fileService.uploadFile(imageFile, videoFile, title, location, area, areaInCents, price, features);
+            LOG.info("File uploaded successfully: ID={}", saved.getId());
+            return ResponseEntity.ok(Map.of("message", "Upload successful", "file", convertToDTO(saved)));
+        } catch (Exception e) {
+            LOG.error("Upload failed: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("message", "Upload failed", "error", e.getMessage()));
+        }
+    }
+    
+    @GetMapping("/{id}")
+    public ResponseEntity<?> getFileById(@PathVariable Long id) {
+        try {
+            FileEntity file = fileService.getFileById(id);
+            return ResponseEntity.ok(convertToDTO(file));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                                 .body(Map.of("message", e.getMessage()));
+        }
+    }
 
 
-	// ✅ NEW METHODS WITH LOGGING
-
-	/**
-	 * Fetch all uploaded files.
-	 */
-	@GetMapping("/all")
-	public ResponseEntity<?> getAllFiles() {
-		LOG.info("Fetching all uploaded files...");
-
-		try {
-			List<FileDTO> files = fileService.getAllFiles().stream().map(file -> {
-				FileDTO dto = new FileDTO();
-				dto.setId(file.getId());
-				dto.setName(file.getName());
-				dto.setType(file.getType());
-				dto.setVideoType(file.getVideoType());
-				dto.setTitle(file.getTitle());
-				dto.setLocation(file.getLocation());
-				dto.setArea(file.getArea());
-				dto.setAreaInCents(file.getAreaInCents());
-				dto.setPrice(file.getPrice());
-				dto.setFeatures(file.getFeatures());
-
-				if (file.getImageData() != null) {
-					dto.setBase64Image("data:" + file.getType() + ";base64,"
-							+ Base64.getEncoder().encodeToString(file.getImageData()));
-				}
-
-				if (file.getVideoData() != null) {
-					dto.setBase64Video("data:" + file.getVideoType() + ";base64,"
-							+ Base64.getEncoder().encodeToString(file.getVideoData()));
-				}
-
-				return dto;
-			}).collect(Collectors.toList());
-
-			LOG.info("Total files fetched: {}", files.size());
-			return ResponseEntity.ok(files);
-
-		} catch (Exception e) {
-			LOG.error("Error fetching all files: {}", e.getMessage(), e);
-			return ResponseEntity.internalServerError().body("Error fetching all files: " + e.getMessage());
-		}
-	}
-
-	/**
-	 * Updates existing file by ID.
-	 */
-	@PutMapping("/update/{id}")
-	public ResponseEntity<?> updateFile(
-			@PathVariable Long id,
-			@RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
-			@RequestParam(value = "videoFile", required = false) MultipartFile videoFile,
-			@RequestParam("title") String title,
-			@RequestParam("location") String location,
-			@RequestParam("area") String area,
-			@RequestParam("areaInCents") String areaInCents,
-			@RequestParam("price") String price,
-			@RequestParam("features") String features) {
-
-		LOG.info("Received update request for file ID: {}", id);
-
-		try {
-			FileEntity updated = fileService.updateFile(id, imageFile, videoFile, title, location, area, areaInCents,
-					price, features);
-			LOG.info("File updated successfully for ID: {}", id);
-			return ResponseEntity.ok(updated);
-		} catch (Exception e) {
-			LOG.error("Update failed for file ID {}: {}", id, e.getMessage(), e);
-			return ResponseEntity.internalServerError().body("Update failed: " + e.getMessage());
-		}
-	}
-
-	/**
-	 * Delete file by ID.
-	 */
-	@DeleteMapping("/delete/{id}")
-	public ResponseEntity<?> deleteFile(@PathVariable Long id) {
-		LOG.warn("Received delete request for file ID: {}", id);
-
-		try {
-			fileService.deleteFile(id);
-			LOG.info("File deleted successfully with ID: {}", id);
-			return ResponseEntity.ok("File deleted successfully");
-		} catch (Exception e) {
-			LOG.error("Failed to delete file with ID {}: {}", id, e.getMessage(), e);
-			return ResponseEntity.internalServerError().body("Delete failed: " + e.getMessage());
-		}
-	}
-
-	/**
-	 * Delete all files from database.
-	 */
-	@DeleteMapping("/deleteAll")
-	public ResponseEntity<?> deleteAllFiles() {
-		LOG.warn("Received request to delete ALL files.");
-
-		try {
-			fileService.deleteAllFiles();
-			LOG.info("All files deleted successfully.");
-			return ResponseEntity.ok("All files deleted successfully");
-		} catch (Exception e) {
-			LOG.error("Failed to delete all files: {}", e.getMessage(), e);
-			return ResponseEntity.internalServerError().body("Delete all failed: " + e.getMessage());
-		}
-	}
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-//	// new methods
+//    // ✅ Serve uploaded images/videos
+//    @GetMapping("/view/{type}/{filename:.+}")
+//    public ResponseEntity<FileSystemResource> viewFile(@PathVariable String type, @PathVariable String filename) {
+//        try {
+//            String folder = type.equalsIgnoreCase("video") ? VIDEO_DIR : IMAGE_DIR;
+//            File file = new File(folder + filename);
 //
+//            if (!file.exists()) {
+//                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+//            }
+//
+//            MediaType mediaType = type.equalsIgnoreCase("video") ?
+//                    MediaType.valueOf("video/mp4") :
+//                    MediaType.IMAGE_JPEG;
+//
+//            return ResponseEntity.ok()
+//                    .contentType(mediaType)
+//                    .body(new FileSystemResource(file));
+//
+//        } catch (Exception e) {
+//            LOG.error("Error serving file: {}", e.getMessage(), e);
+//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+//        }
+//    }
+
+    // ✅ Fetch all
+    @GetMapping("/all")
+    public ResponseEntity<?> getAllFiles() {
+        try {
+            List<FileDTO> files = fileService.getAllFiles().stream()
+                    .map(this::convertToDTO)
+                    .collect(Collectors.toList());
+            LOG.info("Fetched {} files successfully.", files.size());
+            return ResponseEntity.ok(files);
+        } catch (Exception e) {
+            LOG.error("Error fetching files: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("message", "Error fetching files", "error", e.getMessage()));
+        }
+    }
+
+    // ✅ Delete by ID
+    @DeleteMapping("/delete/{id}")
+    public ResponseEntity<?> deleteFileById(@PathVariable Long id) {
+        try {
+            fileService.deleteFileById(id);
+            LOG.info("File deleted successfully: ID={}", id);
+            return ResponseEntity.ok(Map.of("message", "File deleted successfully"));
+        } catch (Exception e) {
+            LOG.error("Error deleting file ID {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("message", "Delete failed", "error", e.getMessage()));
+        }
+    }
+
+    // ✅ Utility to convert Entity → DTO
+    private FileDTO convertToDTO(FileEntity file) {
+        FileDTO dto = new FileDTO();
+        dto.setId(file.getId());
+        dto.setName(file.getName());
+        dto.setType(file.getType());
+        dto.setImageUrl(file.getImageUrl());
+        dto.setVideoName(file.getVideoName());
+        dto.setVideoType(file.getVideoType());
+        dto.setVideoUrl(file.getVideoUrl());
+        dto.setTitle(file.getTitle());
+        dto.setLocation(file.getLocation());
+        dto.setArea(file.getArea());
+        dto.setAreaInCents(file.getAreaInCents());
+        dto.setPrice(file.getPrice());
+        dto.setFeatures(file.getFeatures());
+        return dto;
+    }
+}
+
+
+//package in.bellaryinfotech.Controller;
+//
+//import in.bellaryinfotech.dto.FileDTO;
+//import in.bellaryinfotech.model.FileEntity;
+//import in.bellaryinfotech.Service.FileService;
+//
+//import org.slf4j.Logger;
+//import org.slf4j.LoggerFactory;
+//import org.springframework.beans.factory.annotation.Autowired;
+//import org.springframework.http.ResponseEntity;
+//import org.springframework.web.bind.annotation.*;
+//import org.springframework.web.multipart.MultipartFile;
+//
+//import java.util.Base64;
+//import java.util.List;
+//import java.util.stream.Collectors;
+//
+//@RestController
+//@RequestMapping("/api/files")
+//@CrossOrigin(origins = "*")
+//public class FileController {
+//
+//    private static final Logger LOG = LoggerFactory.getLogger(FileController.class);
+//
+//    @Autowired
+//    private FileService fileService;
+//
+//    // ✅ Upload file
+//    @PostMapping("/upload")
+//    public ResponseEntity<?> uploadFile(@RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
+//                                        @RequestParam(value = "videoFile", required = false) MultipartFile videoFile,
+//                                        @RequestParam("title") String title,
+//                                        @RequestParam("location") String location,
+//                                        @RequestParam("area") String area,
+//                                        @RequestParam("areaInCents") String areaInCents,
+//                                        @RequestParam("price") String price,
+//                                        @RequestParam("features") String features) {
+//        try {
+//            FileEntity saved = fileService.uploadFile(imageFile, videoFile, title, location, area, areaInCents, price, features);
+//            LOG.info("File uploaded successfully: ID={}", saved.getId());
+//            return ResponseEntity.ok(saved);
+//        } catch (Exception e) {
+//            LOG.error("Upload failed: {}", e.getMessage(), e);
+//            return ResponseEntity.internalServerError().body("Upload failed: " + e.getMessage());
+//        }
+//    }
+//
+//    // ✅ Fetch all
+//    @GetMapping("/all")
+//    public ResponseEntity<?> getAllFiles() {
+//        try {
+//            List<FileDTO> files = fileService.getAllFiles().stream().map(this::convertToDTO).collect(Collectors.toList());
+//            LOG.info("Fetched {} files successfully.", files.size());
+//            return ResponseEntity.ok(files);
+//        } catch (Exception e) {
+//            LOG.error("Error fetching files: {}", e.getMessage(), e);
+//            return ResponseEntity.internalServerError().body("Error fetching files: " + e.getMessage());
+//        }
+//    }
+//
+//    // ✅ Fetch by ID
+//    @GetMapping("/{id}")
+//    public ResponseEntity<?> getFileById(@PathVariable Long id) {
+//        try {
+//            FileEntity file = fileService.getFileById(id);
+//            return ResponseEntity.ok(convertToDTO(file));
+//        } catch (Exception e) {
+//            LOG.error("Error fetching file ID {}: {}", id, e.getMessage(), e);
+//            return ResponseEntity.status(404).body("File not found: " + e.getMessage());
+//        }
+//    }
+//
+//    // ✅ Update
+//    @PutMapping("/update/{id}")
+//    public ResponseEntity<?> updateFile(@PathVariable Long id,
+//                                        @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
+//                                        @RequestParam(value = "videoFile", required = false) MultipartFile videoFile,
+//                                        @RequestParam("title") String title,
+//                                        @RequestParam("location") String location,
+//                                        @RequestParam("area") String area,
+//                                        @RequestParam("areaInCents") String areaInCents,
+//                                        @RequestParam("price") String price,
+//                                        @RequestParam("features") String features) {
+//        try {
+//            FileEntity updated = fileService.updateFile(id, imageFile, videoFile, title, location, area, areaInCents, price, features);
+//            LOG.info("File updated successfully: ID={}", id);
+//            return ResponseEntity.ok(convertToDTO(updated));
+//        } catch (Exception e) {
+//            LOG.error("Error updating file ID {}: {}", id, e.getMessage(), e);
+//            return ResponseEntity.internalServerError().body("Update failed: " + e.getMessage());
+//        }
+//    }
+//
+//    // ✅ Delete by ID
+//    @DeleteMapping("/delete/{id}")
+//    public ResponseEntity<?> deleteFileById(@PathVariable Long id) {
+//        try {
+//            fileService.deleteFileById(id);
+//            LOG.info("File deleted successfully: ID={}", id);
+//            return ResponseEntity.ok("File deleted successfully.");
+//        } catch (Exception e) {
+//            LOG.error("Error deleting file ID {}: {}", id, e.getMessage(), e);
+//            return ResponseEntity.internalServerError().body("Delete failed: " + e.getMessage());
+//        }
+//    }
+//
+//    // ✅ Delete all
+//    @DeleteMapping("/delete/all")
+//    public ResponseEntity<?> deleteAllFiles() {
+//        try {
+//            fileService.deleteAllFiles();
+//            LOG.warn("All files deleted successfully.");
+//            return ResponseEntity.ok("All files deleted successfully.");
+//        } catch (Exception e) {
+//            LOG.error("Error deleting all files: {}", e.getMessage(), e);
+//            return ResponseEntity.internalServerError().body("Delete all failed: " + e.getMessage());
+//        }
+//    }
+//
+//    // ✅ Utility to convert Entity → DTO
+//    private FileDTO convertToDTO(FileEntity file) {
+//        FileDTO dto = new FileDTO();
+//        dto.setId(file.getId());
+//        dto.setName(file.getName());
+//        dto.setType(file.getType());
+//        dto.setImageUrl(file.getImageUrl());
+//        dto.setVideoName(file.getVideoName());
+//        dto.setVideoType(file.getVideoType());
+//        dto.setVideoUrl(file.getVideoUrl());
+//        dto.setTitle(file.getTitle());
+//        dto.setLocation(file.getLocation());
+//        dto.setArea(file.getArea());
+//        dto.setAreaInCents(file.getAreaInCents());
+//        dto.setPrice(file.getPrice());
+//        dto.setFeatures(file.getFeatures());
+//        return dto;
+//    }
+//}
+//package in.bellaryinfotech.Controller;
+//
+//import java.util.Base64;
+//import java.util.List;
+//import java.util.stream.Collectors;
+//
+//import org.slf4j.Logger;
+//import org.slf4j.LoggerFactory;
+//import org.springframework.beans.factory.annotation.Autowired;
+//import org.springframework.http.ResponseEntity;
+//import org.springframework.web.bind.annotation.CrossOrigin;
+//import org.springframework.web.bind.annotation.DeleteMapping;
+//import org.springframework.web.bind.annotation.GetMapping;
+//import org.springframework.web.bind.annotation.PathVariable;
+//import org.springframework.web.bind.annotation.PostMapping;
+//import org.springframework.web.bind.annotation.PutMapping;
+//import org.springframework.web.bind.annotation.RequestMapping;
+//import org.springframework.web.bind.annotation.RequestParam;
+//import org.springframework.web.bind.annotation.RestController;
+//import org.springframework.web.multipart.MultipartFile;
+//
+//import in.bellaryinfotech.Service.FileService;
+//import in.bellaryinfotech.dto.FileDTO;
+//import in.bellaryinfotech.model.FileEntity;
+//
+//@RestController
+//@RequestMapping("/api/files")
+//@CrossOrigin(origins = "*")
+//public class FileController {
+//
+//	private static final Logger LOG = LoggerFactory.getLogger(FileController.class);
+//
+//	@Autowired
+//	private FileService fileService;
+//
+//	/**
+//	 * Uploads a file along with metadata (title, location, area, price, features)
+//	 */
+//	@PostMapping("/upload")
+//	public ResponseEntity<?> uploadFile(@RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
+//			@RequestParam(value = "videoFile", required = false) MultipartFile videoFile,
+//			@RequestParam("title") String title, @RequestParam("location") String location,
+//			@RequestParam("area") String area, @RequestParam("areaInCents") String areaInCents,
+//			@RequestParam("price") String price, @RequestParam("features") String features) {
+//
+//		try {
+//			FileEntity savedFile = fileService.uploadFile(imageFile, videoFile, title, location, area, areaInCents,
+//					price, features);
+//			LOG.info("File uploaded successfully: {}", savedFile.getId());
+//			return ResponseEntity.ok(savedFile);
+//		} catch (Exception e) {
+//			LOG.error("Upload failed: {}", e.getMessage(), e);
+//			return ResponseEntity.internalServerError().body("Upload failed: " + e.getMessage());
+//		}
+//	}
+//
+//	/**
+//	 * Retrieves a file and its metadata by ID
+//	 */
+//	@GetMapping("/{id}")
+//	public ResponseEntity<?> getFile(@PathVariable Long id) {
+//		LOG.info("Fetching file and metadata for ID: {}", id);
+//
+//		try {
+//			FileEntity file = fileService.getFile(id);
+//			if (file == null) {
+//				LOG.warn("File not found with ID: {}", id);
+//				return ResponseEntity.notFound().build();
+//			}
+//
+//			// Convert image and video to Base64 (if available)
+//			String base64Image = null;
+//			String base64Video = null;
+//
+//			if (file.getImageData() != null) {
+//				base64Image = "data:" + file.getType() + ";base64,"
+//						+ java.util.Base64.getEncoder().encodeToString(file.getImageData());
+//			}
+//
+//			if (file.getVideoData() != null) {
+//				base64Video = "data:" + file.getVideoType() + ";base64,"
+//						+ java.util.Base64.getEncoder().encodeToString(file.getVideoData());
+//			}
+//
+//			// Build the DTO
+//			FileDTO response = new FileDTO();
+//			response.setId(file.getId());
+//			response.setName(file.getName());
+//			response.setType(file.getType());
+//			response.setVideoType(file.getVideoType());
+//			response.setTitle(file.getTitle());
+//			response.setLocation(file.getLocation());
+//			response.setArea(file.getArea());
+//			response.setAreaInCents(file.getAreaInCents());
+//			response.setPrice(file.getPrice());
+//			response.setFeatures(file.getFeatures());
+//			response.setBase64Image(base64Image);
+//			response.setBase64Video(base64Video);
+//
+//			LOG.info("File and metadata retrieved successfully for ID: {}", id);
+//			return ResponseEntity.ok(response);
+//
+//		} catch (Exception e) {
+//			LOG.error("Error fetching file for ID {}: {}", id, e.getMessage(), e);
+//			return ResponseEntity.internalServerError().body("File fetch failed: " + e.getMessage());
+//		}
+//	}
+//
+//
+//	// ✅ NEW METHODS WITH LOGGING
+//
+//	/**
+//	 * Fetch all uploaded files.
+//	 */
 //	@GetMapping("/all")
 //	public ResponseEntity<?> getAllFiles() {
+//		LOG.info("Fetching all uploaded files...");
+//
 //		try {
 //			List<FileDTO> files = fileService.getAllFiles().stream().map(file -> {
 //				FileDTO dto = new FileDTO();
@@ -245,58 +410,173 @@ public class FileController {
 //				dto.setPrice(file.getPrice());
 //				dto.setFeatures(file.getFeatures());
 //
-//				if (file.getImageData() != null)
+//				if (file.getImageData() != null) {
 //					dto.setBase64Image("data:" + file.getType() + ";base64,"
 //							+ Base64.getEncoder().encodeToString(file.getImageData()));
+//				}
 //
-//				if (file.getVideoData() != null)
+//				if (file.getVideoData() != null) {
 //					dto.setBase64Video("data:" + file.getVideoType() + ";base64,"
 //							+ Base64.getEncoder().encodeToString(file.getVideoData()));
+//				}
 //
 //				return dto;
 //			}).collect(Collectors.toList());
 //
+//			LOG.info("Total files fetched: {}", files.size());
 //			return ResponseEntity.ok(files);
+//
 //		} catch (Exception e) {
+//			LOG.error("Error fetching all files: {}", e.getMessage(), e);
 //			return ResponseEntity.internalServerError().body("Error fetching all files: " + e.getMessage());
 //		}
 //	}
 //
+//	/**
+//	 * Updates existing file by ID.
+//	 */
 //	@PutMapping("/update/{id}")
-//	public ResponseEntity<?> updateFile(@PathVariable Long id,
+//	public ResponseEntity<?> updateFile(
+//			@PathVariable Long id,
 //			@RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
 //			@RequestParam(value = "videoFile", required = false) MultipartFile videoFile,
-//			@RequestParam("title") String title, @RequestParam("location") String location,
-//			@RequestParam("area") String area, @RequestParam("areaInCents") String areaInCents,
-//			@RequestParam("price") String price, @RequestParam("features") String features) {
+//			@RequestParam("title") String title,
+//			@RequestParam("location") String location,
+//			@RequestParam("area") String area,
+//			@RequestParam("areaInCents") String areaInCents,
+//			@RequestParam("price") String price,
+//			@RequestParam("features") String features) {
+//
+//		LOG.info("Received update request for file ID: {}", id);
+//
 //		try {
 //			FileEntity updated = fileService.updateFile(id, imageFile, videoFile, title, location, area, areaInCents,
 //					price, features);
+//			LOG.info("File updated successfully for ID: {}", id);
 //			return ResponseEntity.ok(updated);
 //		} catch (Exception e) {
+//			LOG.error("Update failed for file ID {}: {}", id, e.getMessage(), e);
 //			return ResponseEntity.internalServerError().body("Update failed: " + e.getMessage());
 //		}
 //	}
 //
+//	/**
+//	 * Delete file by ID.
+//	 */
 //	@DeleteMapping("/delete/{id}")
 //	public ResponseEntity<?> deleteFile(@PathVariable Long id) {
+//		LOG.warn("Received delete request for file ID: {}", id);
+//
 //		try {
 //			fileService.deleteFile(id);
+//			LOG.info("File deleted successfully with ID: {}", id);
 //			return ResponseEntity.ok("File deleted successfully");
 //		} catch (Exception e) {
+//			LOG.error("Failed to delete file with ID {}: {}", id, e.getMessage(), e);
 //			return ResponseEntity.internalServerError().body("Delete failed: " + e.getMessage());
 //		}
 //	}
 //
+//	/**
+//	 * Delete all files from database.
+//	 */
 //	@DeleteMapping("/deleteAll")
 //	public ResponseEntity<?> deleteAllFiles() {
+//		LOG.warn("Received request to delete ALL files.");
+//
 //		try {
 //			fileService.deleteAllFiles();
+//			LOG.info("All files deleted successfully.");
 //			return ResponseEntity.ok("All files deleted successfully");
 //		} catch (Exception e) {
+//			LOG.error("Failed to delete all files: {}", e.getMessage(), e);
 //			return ResponseEntity.internalServerError().body("Delete all failed: " + e.getMessage());
 //		}
 //	}
-	
-	
-}
+//	
+//	
+//	
+//	
+//	
+//	
+//	
+//	
+//	
+//	
+//	
+//	
+//	
+//	
+////	// new methods
+////
+////	@GetMapping("/all")
+////	public ResponseEntity<?> getAllFiles() {
+////		try {
+////			List<FileDTO> files = fileService.getAllFiles().stream().map(file -> {
+////				FileDTO dto = new FileDTO();
+////				dto.setId(file.getId());
+////				dto.setName(file.getName());
+////				dto.setType(file.getType());
+////				dto.setVideoType(file.getVideoType());
+////				dto.setTitle(file.getTitle());
+////				dto.setLocation(file.getLocation());
+////				dto.setArea(file.getArea());
+////				dto.setAreaInCents(file.getAreaInCents());
+////				dto.setPrice(file.getPrice());
+////				dto.setFeatures(file.getFeatures());
+////
+////				if (file.getImageData() != null)
+////					dto.setBase64Image("data:" + file.getType() + ";base64,"
+////							+ Base64.getEncoder().encodeToString(file.getImageData()));
+////
+////				if (file.getVideoData() != null)
+////					dto.setBase64Video("data:" + file.getVideoType() + ";base64,"
+////							+ Base64.getEncoder().encodeToString(file.getVideoData()));
+////
+////				return dto;
+////			}).collect(Collectors.toList());
+////
+////			return ResponseEntity.ok(files);
+////		} catch (Exception e) {
+////			return ResponseEntity.internalServerError().body("Error fetching all files: " + e.getMessage());
+////		}
+////	}
+////
+////	@PutMapping("/update/{id}")
+////	public ResponseEntity<?> updateFile(@PathVariable Long id,
+////			@RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
+////			@RequestParam(value = "videoFile", required = false) MultipartFile videoFile,
+////			@RequestParam("title") String title, @RequestParam("location") String location,
+////			@RequestParam("area") String area, @RequestParam("areaInCents") String areaInCents,
+////			@RequestParam("price") String price, @RequestParam("features") String features) {
+////		try {
+////			FileEntity updated = fileService.updateFile(id, imageFile, videoFile, title, location, area, areaInCents,
+////					price, features);
+////			return ResponseEntity.ok(updated);
+////		} catch (Exception e) {
+////			return ResponseEntity.internalServerError().body("Update failed: " + e.getMessage());
+////		}
+////	}
+////
+////	@DeleteMapping("/delete/{id}")
+////	public ResponseEntity<?> deleteFile(@PathVariable Long id) {
+////		try {
+////			fileService.deleteFile(id);
+////			return ResponseEntity.ok("File deleted successfully");
+////		} catch (Exception e) {
+////			return ResponseEntity.internalServerError().body("Delete failed: " + e.getMessage());
+////		}
+////	}
+////
+////	@DeleteMapping("/deleteAll")
+////	public ResponseEntity<?> deleteAllFiles() {
+////		try {
+////			fileService.deleteAllFiles();
+////			return ResponseEntity.ok("All files deleted successfully");
+////		} catch (Exception e) {
+////			return ResponseEntity.internalServerError().body("Delete all failed: " + e.getMessage());
+////		}
+////	}
+//	
+//	
+//}
