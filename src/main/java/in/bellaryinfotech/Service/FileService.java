@@ -1,29 +1,25 @@
 package in.bellaryinfotech.Service;
 
-import java.util.List;
-
+import in.bellaryinfotech.model.FileEntity;
 import org.springframework.web.multipart.MultipartFile;
 
-import in.bellaryinfotech.model.FileEntity;
+import java.util.List;
 
 public interface FileService {
 
-    FileEntity uploadFile(MultipartFile imageFile,
-                          MultipartFile videoFile,
-                          String title,
-                          String location,
-                          String area,
-                          String areaInCents,
-                          String price,
-                          String features) throws Exception;
+    FileEntity uploadFile(MultipartFile imageFile, MultipartFile videoFile,
+                          String title, String location, String area, String areaInCents,
+                          String price, String features) throws Exception;
 
-    FileEntity getFile(Long id) throws Exception;
-    
-    // New methods
     List<FileEntity> getAllFiles();
+
+    FileEntity getFileById(Long id) throws Exception;
+
     FileEntity updateFile(Long id, MultipartFile imageFile, MultipartFile videoFile,
                           String title, String location, String area, String areaInCents,
                           String price, String features) throws Exception;
-    void deleteFile(Long id);
+
+    void deleteFileById(Long id) throws Exception;
+
     void deleteAllFiles();
 }
