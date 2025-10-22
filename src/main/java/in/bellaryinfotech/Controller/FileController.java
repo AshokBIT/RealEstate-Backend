@@ -114,6 +114,29 @@ public class FileController {
         }
     }
 
+ // ✅ Update existing file by ID
+    @PutMapping("/update/{id}")
+    public ResponseEntity<?> updateFile(@PathVariable Long id,
+                                        @RequestParam(value = "imageFile", required = false) MultipartFile imageFile,
+                                        @RequestParam(value = "videoFile", required = false) MultipartFile videoFile,
+                                        @RequestParam("title") String title,
+                                        @RequestParam("location") String location,
+                                        @RequestParam("area") String area,
+                                        @RequestParam("areaInCents") String areaInCents,
+                                        @RequestParam("price") String price,
+                                        @RequestParam("features") String features) {
+        try {
+            FileEntity updated = fileService.updateFile(id, imageFile, videoFile, title, location, area, areaInCents, price, features);
+            LOG.info("File updated successfully: ID={}", updated.getId());
+            return ResponseEntity.ok(Map.of("message", "File updated successfully", "file", convertToDTO(updated)));
+        } catch (Exception e) {
+            LOG.error("Error updating file ID {}: {}", id, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "Update failed", "error", e.getMessage()));
+        }
+    }
+
+    
     // ✅ Delete by ID
     @DeleteMapping("/delete/{id}")
     public ResponseEntity<?> deleteFileById(@PathVariable Long id) {
